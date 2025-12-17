@@ -5,11 +5,18 @@ import time
 from config import DIFFICULTY_LEVELS, WORD_LISTS
 from game.core import GameState
 from game.leaderboard import add_score
+from game.leaderboard import load_leaderboard
 
 
 class GuessRoyaleFrame(wx.Frame):
+    
     def __init__(self):
-        super().__init__(None, title="GuessRoyale – GUI", size=(750, 380))
+        super().__init__(
+            None,
+            title="GuessRoyale – GUI",
+            size=(750, 380),
+            style=wx.DEFAULT_FRAME_STYLE & ~wx.MAXIMIZE_BOX
+        )
         self.Centre()
 
         self.state: GameState | None = None
@@ -54,7 +61,31 @@ class GuessRoyaleFrame(wx.Frame):
         self.status_lbl = wx.StaticText(panel, label="Status: Not playing")
         root.Add(self.status_lbl, 0, wx.ALL | wx.EXPAND, 4)
 
+
+        # Leaderboard (Home Screen)
+        self.lb_title = wx.StaticText(panel, label="Leaderboard")
+        lb_font = self.lb_title.GetFont()
+        lb_font.SetWeight(wx.FONTWEIGHT_BOLD)
+        self.lb_title.SetFont(lb_font)
+
+        self.leaderboard = wx.ListCtrl(
+            panel,
+            style=wx.LC_REPORT | wx.BORDER_SUNKEN
+        )
+
+        self.leaderboard.InsertColumn(0, "Name")
+        self.leaderboard.InsertColumn(1, "Mode")
+        self.leaderboard.InsertColumn(2, "Difficulty")
+        self.leaderboard.InsertColumn(3, "Score")
+
+        root.Add(self.lb_title, 0, wx.LEFT | wx.TOP, 8)
+        root.Add(self.leaderboard, 1, wx.EXPAND | wx.ALL, 8)
+
+
         self.mode_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        
+
 
         # Number mode UI
         self.num_panel = wx.Panel(panel)
@@ -95,6 +126,8 @@ class GuessRoyaleFrame(wx.Frame):
 
         panel.SetSizer(root)
 
+
+        self.Bind(wx.EVT_SIZE, self.on_resize)
         self.start_btn.Bind(wx.EVT_BUTTON, self.on_start)
         self.exit_btn.Bind(wx.EVT_BUTTON, lambda e: self.Close())
         self.num_submit.Bind(wx.EVT_BUTTON, self.on_num_submit)
@@ -104,6 +137,39 @@ class GuessRoyaleFrame(wx.Frame):
 
         self.show_number_mode(False); self.show_word_mode(False)
         self.disable_inputs()
+        self.load_leaderboard_table()
+
+    def load_leaderboard_table(self):
+            self.leaderboard.DeleteAllItems()
+            data = load_leaderboard()
+            data = sorted(data, key=lambda x: x["score"], reverse=True)
+
+            for row in data:
+                idx = self.leaderboard.InsertItem(
+                    self.leaderboard.GetItemCount(), row["player"]
+                )
+                self.leaderboard.SetItem(idx, 1, row["mode"])
+                self.leaderboard.SetItem(idx, 2, row["difficulty"])
+                self.leaderboard.SetItem(idx, 3, str(row["score"]))
+
+            for col in range(4):
+                self.leaderboard.SetColumnWidth(
+                    col, wx.LIST_AUTOSIZE_USEHEADER
+                )
+
+            total_width = self.leaderboard.GetClientSize().width
+            col_width = total_width // 4
+
+            for col in range(4):
+                self.leaderboard.SetColumnWidth(col, col_width) 
+
+    def on_resize(self, event):
+        if self.leaderboard.IsShown():
+            total_width = self.leaderboard.GetClientSize().width
+            col_width = total_width // 4
+            for col in range(4):
+                self.leaderboard.SetColumnWidth(col, col_width)
+        event.Skip()
 
     # sizing / helpers
 
@@ -142,8 +208,12 @@ class GuessRoyaleFrame(wx.Frame):
         self.word_input.Enable(not is_num); self.word_submit.Enable(not is_num)
 
     # start
-
+    
     def on_start(self, event):
+
+        self.lb_title.Hide()
+        self.leaderboard.Hide()
+
         name = self.name_txt.GetValue().strip() or "Anonymous"
         diff_key = self.diff_choice.GetStringSelection().split(" - ")[0]
         mode = "Number" if self.rb_num.GetValue() else "Word"
@@ -246,15 +316,23 @@ class GuessRoyaleFrame(wx.Frame):
                 btn = wx.Button(
                     self.grid_container,
                     label="",
-                    style=wx.BU_EXACTFIT,
+                    style=wx.BU_EXACTFIT | wx.BORDER_NONE,
+
                 )
-                btn.SetMinSize((35, 35))
-                btn.Enable(False)  # make it look like a tile, not an active button
-                btn.SetBackgroundColour(wx.Colour(220, 220, 220))
+
+                btn.SetBackgroundColour(wx.Colour(200, 200, 200))
+                btn.SetForegroundColour(wx.BLACK)
+                btn.SetOwnBackgroundColour(wx.Colour(200, 200, 200))
+                btn.SetOwnForegroundColour(wx.BLACK)
+
+                btn.SetMinSize((45, 45))
+                btn.Bind(wx.EVT_BUTTON, lambda e: None)  # ignore clicks
+                
+
                 font = btn.GetFont()
+                font.SetPointSize(font.GetPointSize() + 4)
                 font.SetWeight(wx.FONTWEIGHT_BOLD)
                 btn.SetFont(font)
-                btn.SetForegroundColour(wx.BLACK)
                 self.grid_sizer.Add(btn, 0, wx.EXPAND)
                 row_labels.append(btn)
 
@@ -283,9 +361,10 @@ class GuessRoyaleFrame(wx.Frame):
             if guess[i] != ch:
                 remaining[ch] = remaining.get(ch, 0) + 1
 
-        red = wx.Colour(200, 50, 50)
-        green = wx.Colour(50, 180, 80)
-        yellow = wx.Colour(230, 200, 40)
+        red = wx.Colour(180, 30, 30)
+        green = wx.Colour(0, 135, 90)
+        yellow = wx.Colour(200, 160, 0)
+
         colours = [red] * self.word_len
 
         for i, ch in enumerate(guess):
@@ -301,12 +380,8 @@ class GuessRoyaleFrame(wx.Frame):
                 remaining[ch] -= 1
 
         for i in range(self.word_len):
-            if colours[i] == green:
-                row_labels[i].SetForegroundColour(wx.WHITE)
-            else:
-                row_labels[i].SetForegroundColour(wx.BLACK)
-
             row_labels[i].SetBackgroundColour(colours[i])
+            row_labels[i].SetForegroundColour(wx.WHITE)  # ALWAYS white text
             row_labels[i].Refresh()
 
 
@@ -486,21 +561,39 @@ class GuessRoyaleFrame(wx.Frame):
 
     def game_over(self):
         score = self.state.score if self.state else 0
+
         dlg = wx.MessageDialog(
             self,
             f"Game Over.\nFinal score: {score}\n\nSave to leaderboard?",
-            "Game Over", wx.YES_NO | wx.ICON_QUESTION
+            "Game Over",
+            wx.YES_NO | wx.ICON_QUESTION,
         )
-        res = dlg.ShowModal(); dlg.Destroy()
+        res = dlg.ShowModal()
+        dlg.Destroy()
+
         if res == wx.ID_YES and self.state is not None:
             add_score(self.state)
+
+        # SHOW leaderboard again on home screen
+        self.lb_title.Show()
+        self.leaderboard.Show()
+        self.load_leaderboard_table()
+
+        # reset game state
         self.state = None
-        self.target = self.secret = None
-        self.attempts_left = self.word_len = self.max_attempts = self.current_row = 0
+        self.target = None
+        self.secret = None
+        self.attempts_left = 0
+        self.word_len = 0
+        self.max_attempts = 0
+        self.current_row = 0
+
         self.disable_inputs()
-        self.show_number_mode(False); self.show_word_mode(False)
+        self.show_number_mode(False)
+        self.show_word_mode(False)
         self.status_lbl.SetLabel("Status: Not playing")
         self.panel.Layout()
+
 
 
 class GuessRoyaleApp(wx.App):
